@@ -212,7 +212,44 @@ font-family:Arial,sans-serif;
       </section>
 
       <section class="page" id="contractsPage">
-        <article class="card placeholder"><h3>Contracts</h3><p>Starter section ready for package tracking. You can add contract balances and automatic class deductions in the next version.</p></article>
+
+  <div class="page-actions">
+    <input
+      id="contractSearch"
+      class="input"
+      placeholder="Search contracts..."
+    />
+    <button class="btn primary" id="addContractBtn">
+      + Add Contract
+    </button>
+  </div>
+
+  <article class="card table-card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Contract ID</th>
+            <th>Student</th>
+            <th>Total Classes</th>
+            <th>Used</th>
+            <th>Remaining</th>
+            <th>Amount</th>
+            <th>Start Date</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+
+        <tbody id="contractsTable">
+          <tr>
+            <td colspan="9">No contracts yet.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
+
       </section>
 
       <section class="page" id="paymentsPage">
