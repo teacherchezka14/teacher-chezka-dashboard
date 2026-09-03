@@ -939,5 +939,316 @@ function renderAll() {
   renderDashboard();
   renderReports();
 }
+// ==========================================
+// CONTRACTS
+// ==========================================
 
+state.contracts = [];
+
+const contractDialog = document.getElementById('contractDialog');
+const contractForm = document.getElementById('contractForm');
+
+document.getElementById('addContractBtn')?.addEventListener('click', () => {
+  if (!state.students.length) {
+    alert('Please add a student first.');
+    return;
+  }
+
+  contractForm.reset();
+
+  const select = document.getElementById('contractStudent');
+
+  select.innerHTML = state.students
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(student =>
+      `<option value="${student.id}">${esc(student.name)}</option>`
+    )
+    .join('');
+
+  document.getElementById('contractStart').value = todayISO();
+  document.getElementById('contractStatus').value = 'Active';
+
+  contractDialog.showModal();
+});
+
+
+contractForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const totalClasses =
+    Number(document.getElementById('contractTotal').value || 0);
+
+  const contract = {
+    contract_id:
+      'CTR-' + Date.now().toString().slice(-8),
+
+    student_id:
+      Number(document.getElementById('contractStudent').value),
+
+    total_classes: totalClasses,
+
+    classes_used: 0,
+
+    classes_remaining: totalClasses,
+
+    total_amount:
+      Number(document.getElementById('contractAmount').value || 0),
+
+    start_date:
+      document.getElementById('contractStart').value,
+
+    end_date:
+      document.getElementById('contractEnd').value || null,
+
+    status:
+      document.getElementById('contractStatus').value
+  };
+
+  const { error } = await supabaseClient
+    .from('contracts')
+    .insert(contract);
+
+  if (error) {
+    alert('Contract was not saved: ' + error.message);
+    return;
+  }
+
+  contractDialog.close();
+  await loadDashboardData();
+});
+
+
+function contractStudentName(contract) {
+  if (contract.students?.name) {
+    return contract.students.name;
+  }
+
+  const student = state.students.find(
+    s => Number(s.id) === Number(contract.student_id)
+  );
+
+  return student?.name || 'Unknown Student';
+}
+
+
+function countUsedClasses(contract) {
+  return state.classes.filter(c => {
+
+    if (Number(c.student_id) !== Number(contract.student_id)) {
+      return false;
+    }
+
+    if (
+      contract.start_date &&
+      c.class_date < contract.start_date
+    ) {
+      return false;
+    }
+
+    if (
+      contract.end_date &&
+      c.class_date > contract.end_date
+    ) {
+      return false;
+    }
+
+    const status = lower(c.status);
+
+    return (
+      status === 'present' ||
+      status === 'completed' ||
+      status === 'conducted' ||
+      status === 'finished'
+    );
+
+  }).length;
+}
+
+
+function renderContracts() {
+
+  const tbody =
+    document.getElementById('contractsTable');
+
+  if (!tbody) return;
+
+  const search =
+    lower(document.getElementById('contractSearch')?.value);
+
+  const contracts = state.contracts.filter(contract => {
+
+    if (!search) return true;
+
+    return (
+      lower(contract.contract_id).includes(search) ||
+      lower(contractStudentName(contract)).includes(search) ||
+      lower(contract.status).includes(search)
+    );
+
+  });
+
+  if (!contracts.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="9">No contracts yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = contracts.map(contract => {
+
+    const used = countUsedClasses(contract);
+
+    const remaining = Math.max(
+      0,
+      Number(contract.total_classes || 0) - used
+    );
+
+    return `
+      <tr>
+
+        <td>
+          <strong>${esc(contract.contract_id)}</strong>
+        </td>
+
+        <td>
+          ${esc(contractStudentName(contract))}
+        </td>
+
+        <td>
+          ${Number(contract.total_classes || 0)}
+        </td>
+
+        <td>
+          ${used}
+        </td>
+
+        <td>
+          <strong>${remaining}</strong>
+        </td>
+
+        <td>
+          ${Number(contract.total_amount || 0).toFixed(2)} RMB
+        </td>
+
+        <td>
+          ${esc(contract.start_date || '')}
+        </td>
+
+        <td>
+          ${esc(contract.status || 'Active')}
+        </td>
+
+        <td>
+          <button
+            class="text-btn"
+            onclick="deleteContract(${contract.id})">
+            Delete
+          </button>
+        </td>
+
+      </tr>
+    `;
+
+  }).join('');
+}
+
+
+window.deleteContract = async function(id) {
+
+  if (!confirm('Delete this contract?')) {
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from('contracts')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  await loadDashboardData();
+};
+
+
+document.getElementById('contractSearch')
+  ?.addEventListener('input', renderContracts);
+
+
+// ==========================================
+// UPDATED CLOUD DATA LOADER
+// ==========================================
+
+async function loadDashboardData() {
+
+  const studentsResult = await supabaseClient
+    .from('students')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  const classesResult = await supabaseClient
+    .from('classes')
+    .select('*, students(name)')
+    .order('class_date', { ascending: true });
+
+  const contractsResult = await supabaseClient
+    .from('contracts')
+    .select('*, students(name)')
+    .order('created_at', { ascending: false });
+
+
+  if (studentsResult.error) {
+    alert(
+      'Could not load students: ' +
+      studentsResult.error.message
+    );
+    return;
+  }
+
+  if (classesResult.error) {
+    alert(
+      'Could not load classes: ' +
+      classesResult.error.message
+    );
+    return;
+  }
+
+  if (contractsResult.error) {
+    alert(
+      'Could not load contracts: ' +
+      contractsResult.error.message
+    );
+    return;
+  }
+
+
+  state.students =
+    studentsResult.data || [];
+
+  state.classes =
+    classesResult.data || [];
+
+  state.contracts =
+    contractsResult.data || [];
+
+
+  renderAll();
+}
+
+
+// ==========================================
+// UPDATED RENDER
+// ==========================================
+
+function renderAll() {
+  fillStudentSelect();
+  renderStudents();
+  renderSchedule();
+  renderRecords();
+  renderDashboard();
+  renderReports();
+  renderContracts();
+}
 checkSession();
