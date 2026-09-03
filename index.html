@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teacher Chezka Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">TC</div>
+        <div>
+          <h1>Teacher Chezka</h1>
+          <p>Private ESL Dashboard</p>
+        </div>
+      </div>
+      <nav id="nav">
+        <button class="nav-btn active" data-page="dashboard">🏠 Dashboard</button>
+        <button class="nav-btn" data-page="students">👩‍🎓 Students</button>
+        <button class="nav-btn" data-page="schedule">🗓️ Weekly Schedule</button>
+        <button class="nav-btn" data-page="records">📚 Class Records</button>
+        <button class="nav-btn" data-page="contracts">🧾 Contracts</button>
+        <button class="nav-btn" data-page="payments">💴 Payments</button>
+        <button class="nav-btn" data-page="reports">📊 Reports</button>
+        <button class="nav-btn" data-page="import">⬆️ Import ClassIn</button>
+        <button class="nav-btn" data-page="settings">⚙️ Settings</button>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h2 id="pageTitle">Dashboard</h2>
+          <p id="pageSubtitle">Your private ESL teaching overview</p>
+        </div>
+        <div class="top-actions">
+          <button class="btn secondary" id="quickStudent">+ Student</button>
+          <button class="btn primary" id="quickClass">+ Schedule Class</button>
+        </div>
+      </header>
+
+      <section class="page active" id="dashboardPage">
+        <div class="stats-grid">
+          <article class="stat pink"><span>Active Students</span><strong id="statStudents">0</strong></article>
+          <article class="stat peach"><span>Classes Today</span><strong id="statToday">0</strong></article>
+          <article class="stat lavender"><span>Classes This Month</span><strong id="statMonth">0</strong></article>
+          <article class="stat beige"><span>Total Class Records</span><strong id="statRecords">0</strong></article>
+        </div>
+
+        <div class="grid-2">
+          <article class="card">
+            <div class="card-head"><h3>Upcoming Classes</h3><button class="text-btn" data-jump="schedule">View schedule</button></div>
+            <div id="upcomingList" class="list-empty">No upcoming classes yet.</div>
+          </article>
+          <article class="card">
+            <div class="card-head"><h3>Recent Students</h3><button class="text-btn" data-jump="students">View students</button></div>
+            <div id="recentStudents" class="list-empty">No students yet.</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="studentsPage">
+        <div class="page-actions">
+          <input id="studentSearch" class="input" placeholder="Search students..." />
+          <button class="btn primary" id="addStudentBtn">+ Add Student</button>
+        </div>
+        <article class="card table-card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>Age</th><th>Country</th><th>Book</th><th>Payment</th><th>Amount/Class</th><th>Actions</th></tr></thead>
+              <tbody id="studentsTable"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="page" id="schedulePage">
+        <div class="page-actions">
+          <input type="date" id="scheduleDateFilter" class="input" />
+          <button class="btn primary" id="addClassBtn">+ Schedule Class</button>
+        </div>
+        <article class="card table-card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Time</th><th>Student</th><th>Duration</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead>
+              <tbody id="scheduleTable"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="page" id="recordsPage">
+        <div class="page-actions">
+          <input id="recordSearch" class="input" placeholder="Search class records..." />
+          <button class="btn danger-outline" id="clearRecordsBtn">Delete All Records</button>
+        </div>
+        <article class="card table-card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Date</th><th>Time</th><th>Student</th><th>Duration</th><th>Status</th><th>Source</th></tr></thead>
+              <tbody id="recordsTable"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="page" id="contractsPage">
+        <article class="card placeholder"><h3>Contracts</h3><p>Starter section ready for package tracking. You can add contract balances and automatic class deductions in the next version.</p></article>
+      </section>
+
+      <section class="page" id="paymentsPage">
+        <article class="card placeholder"><h3>Payments</h3><p>Starter section ready for everyday payments, contract payments, weekly payout, and monthly revenue.</p></article>
+      </section>
+
+      <section class="page" id="reportsPage">
+        <div class="stats-grid">
+          <article class="stat pink"><span>Imported Records</span><strong id="reportImported">0</strong></article>
+          <article class="stat peach"><span>Scheduled</span><strong id="reportScheduled">0</strong></article>
+          <article class="stat lavender"><span>Present</span><strong id="reportPresent">0</strong></article>
+          <article class="stat beige"><span>Cancelled/Absent</span><strong id="reportOther">0</strong></article>
+        </div>
+      </section>
+
+      <section class="page" id="importPage">
+        <article class="card import-card">
+          <h3>Import ClassIn Classes</h3>
+          <p>Upload CSV or Excel files. This version does not intentionally cap imports at 388 rows. It processes the full sheet available in your browser.</p>
+          <div class="dropzone">
+            <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
+            <strong>Choose your ClassIn export</strong>
+            <span>CSV, XLSX, or XLS</span>
+          </div>
+          <div class="import-options">
+            <label><input type="checkbox" id="skipDuplicates" checked /> Skip likely duplicate rows</label>
+            <label><input type="checkbox" id="autoStudents" checked /> Automatically create missing students</label>
+          </div>
+          <button class="btn primary" id="importBtn">Import All Rows</button>
+          <div id="importStatus" class="status-box hidden"></div>
+        </article>
+      </section>
+
+      <section class="page" id="settingsPage">
+        <article class="card">
+          <h3>Data Settings</h3>
+          <p>This starter stores data in this browser using localStorage. Export a backup before clearing browser data.</p>
+          <div class="settings-actions">
+            <button class="btn secondary" id="exportBtn">Export Backup JSON</button>
+            <label class="btn secondary file-label">Import Backup JSON<input id="backupInput" type="file" accept=".json" hidden /></label>
+            <button class="btn danger-outline" id="resetBtn">Reset All Dashboard Data</button>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="studentDialog" class="modal">
+    <form method="dialog" id="studentForm">
+      <div class="modal-head"><h3>Add Student</h3><button value="cancel" class="icon-btn">✕</button></div>
+      <div class="form-grid">
+        <label>Name<input required id="sName" class="input" /></label>
+        <label>Age<input id="sAge" class="input" type="number" min="1" /></label>
+        <label>Gender<select id="sGender" class="input"><option value="">—</option><option>Female</option><option>Male</option><option>Other</option></select></label>
+        <label>Country<input id="sCountry" class="input" value="China" /></label>
+        <label>Timezone<input id="sTimezone" class="input" value="Asia/Shanghai" /></label>
+        <label>Class Duration<select id="sDuration" class="input"><option value="25">25 minutes</option><option value="50">50 minutes</option></select></label>
+        <label>Payment Type<select id="sPayment" class="input"><option>Contract</option><option>Every day</option></select></label>
+        <label>Amount/Class (RMB)<input id="sAmount" class="input" type="number" step="0.01" /></label>
+        <label class="wide">Book / Course<input id="sBook" class="input" /></label>
+      </div>
+      <div class="modal-actions"><button value="cancel" class="btn secondary">Cancel</button><button type="submit" value="default" class="btn primary">Save Student</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="classDialog" class="modal">
+    <form method="dialog" id="classForm">
+      <div class="modal-head"><h3>Schedule Class</h3><button value="cancel" class="icon-btn">✕</button></div>
+      <div class="form-grid">
+        <label>Student<select required id="cStudent" class="input"></select></label>
+        <label>Date<input required id="cDate" class="input" type="date" /></label>
+        <label>Time<input required id="cTime" class="input" type="time" /></label>
+        <label>Duration<select id="cDuration" class="input"><option value="25">25 minutes</option><option value="50">50 minutes</option></select></label>
+        <label>Status<select id="cStatus" class="input"><option>Scheduled</option><option>Present</option><option>Absent</option><option>Cancelled</option><option>Student absent notified</option><option>Teacher absent notified</option></select></label>
+        <label class="wide">Notes<input id="cNotes" class="input" /></label>
+      </div>
+      <div class="modal-actions"><button value="cancel" class="btn secondary">Cancel</button><button type="submit" value="default" class="btn primary">Save Class</button></div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
