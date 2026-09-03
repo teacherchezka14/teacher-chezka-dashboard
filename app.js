@@ -6,6 +6,53 @@ const supabaseClient = supabase.createClient(
   SUPABASE_URL,
   SUPABASE_KEY
 );
+// AUTHENTICATION
+const authScreen = document.getElementById('authScreen');
+const loginForm = document.getElementById('loginForm');
+const loginEmail = document.getElementById('loginEmail');
+const loginPassword = document.getElementById('loginPassword');
+const loginMessage = document.getElementById('loginMessage');
+
+async function checkSession() {
+  const { data } = await supabaseClient.auth.getSession();
+
+  if (data.session) {
+    authScreen.style.display = 'none';
+  } else {
+    authScreen.style.display = 'flex';
+  }
+}
+
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  loginMessage.style.color = '#777';
+  loginMessage.textContent = 'Signing in...';
+
+  const { error } = await supabaseClient.auth.signInWithPassword({
+    email: loginEmail.value.trim(),
+    password: loginPassword.value
+  });
+
+  if (error) {
+    loginMessage.style.color = '#b94a48';
+    loginMessage.textContent = 'Incorrect email or password.';
+    return;
+  }
+
+  loginMessage.textContent = '';
+  authScreen.style.display = 'none';
+});
+
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  if (session) {
+    authScreen.style.display = 'none';
+  } else {
+    authScreen.style.display = 'flex';
+  }
+});
+
+checkSession();
 const STORE_KEY='teacherChezkaDashboardV1';
 let state=loadState();
 let parsedImportRows=[];
