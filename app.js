@@ -6,7 +6,11 @@ const supabaseClient = supabase.createClient(
   SUPABASE_URL,
   SUPABASE_KEY
 );
+
+// ==========================================
 // AUTHENTICATION
+// ==========================================
+
 const authScreen = document.getElementById('authScreen');
 const loginForm = document.getElementById('loginForm');
 const loginEmail = document.getElementById('loginEmail');
@@ -17,96 +21,923 @@ async function checkSession() {
   const { data } = await supabaseClient.auth.getSession();
 
   if (data.session) {
-    authScreen.style.display = 'none';
+    if (authScreen) authScreen.style.display = 'none';
+    await loadDashboardData();
   } else {
-    authScreen.style.display = 'flex';
+    if (authScreen) authScreen.style.display = 'flex';
   }
 }
 
-loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-  loginMessage.style.color = '#777';
-  loginMessage.textContent = 'Signing in...';
+    loginMessage.style.color = '#777';
+    loginMessage.textContent = 'Signing in...';
 
-  const { error } = await supabaseClient.auth.signInWithPassword({
-    email: loginEmail.value.trim(),
-    password: loginPassword.value
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: loginEmail.value.trim(),
+      password: loginPassword.value
+    });
+
+    if (error) {
+      loginMessage.style.color = '#b94a48';
+      loginMessage.textContent = error.message;
+      return;
+    }
+
+    loginMessage.textContent = '';
+    authScreen.style.display = 'none';
+    await loadDashboardData();
+  });
+}
+
+supabaseClient.auth.onAuthStateChange(async (event, session) => {
+  if (session) {
+    if (authScreen) authScreen.style.display = 'none';
+  } else {
+    if (authScreen) authScreen.style.display = 'flex';
+  }
+});
+
+
+// ==========================================
+// DASHBOARD STATE
+// ==========================================
+
+let state = {
+  students: [],
+  classes: []
+};
+
+let parsedImportRows = [];
+
+function esc(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function lower(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+
+// ==========================================
+// NAVIGATION
+// ==========================================
+
+const pages = {
+  dashboard: 'Dashboard',
+  students: 'Students',
+  schedule: 'Weekly Schedule',
+  records: 'Class Records',
+  contracts: 'Contracts',
+  payments: 'Payments',
+  reports: 'Reports',
+  import: 'Import ClassIn',
+  settings: 'Settings'
+};
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => showPage(btn.dataset.page));
+});
+
+document.querySelectorAll('[data-jump]').forEach(btn => {
+  btn.addEventListener('click', () => showPage(btn.dataset.jump));
+});
+
+function showPage(name) {
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === name);
   });
 
-  if (error) {
-    loginMessage.style.color = '#b94a48';
-    loginMessage.textContent = 'Incorrect email or password.';
+  document.querySelectorAll('.page').forEach(page => {
+    page.classList.remove('active');
+  });
+
+  const target = document.getElementById(name + 'Page');
+  if (target) target.classList.add('active');
+
+  const title = document.getElementById('pageTitle');
+  if (title) title.textContent = pages[name] || 'Dashboard';
+}
+
+
+// ==========================================
+// LOAD DATA FROM SUPABASE
+// ==========================================
+
+async function loadDashboardData() {
+  const studentsResult = await supabaseClient
+    .from('students')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  const classesResult = await supabaseClient
+    .from('classes')
+    .select('*, students(name)')
+    .order('class_date', { ascending: true });
+
+  if (studentsResult.error) {
+    console.error(studentsResult.error);
+    alert('Could not load students: ' + studentsResult.error.message);
     return;
   }
 
-  loginMessage.textContent = '';
-  authScreen.style.display = 'none';
-});
+  if (classesResult.error) {
+    console.error(classesResult.error);
+    alert('Could not load classes: ' + classesResult.error.message);
+    return;
+  }
 
-supabaseClient.auth.onAuthStateChange((event, session) => {
-  if (session) {
-    authScreen.style.display = 'none';
-  } else {
-    authScreen.style.display = 'flex';
+  state.students = studentsResult.data || [];
+  state.classes = classesResult.data || [];
+
+  renderAll();
+}
+
+
+// ==========================================
+// STUDENTS
+// ==========================================
+
+const studentDialog = document.getElementById('studentDialog');
+const studentForm = document.getElementById('studentForm');
+
+['quickStudent', 'addStudentBtn'].forEach(id => {
+  const button = document.getElementById(id);
+
+  if (button) {
+    button.addEventListener('click', () => {
+      studentForm.reset();
+
+      document.getElementById('sCountry').value = 'China';
+      document.getElementById('sTimezone').value = 'Asia/Shanghai';
+      document.getElementById('sDuration').value = '25';
+      document.getElementById('sPayment').value = 'Contract';
+
+      studentDialog.showModal();
+    });
   }
 });
 
+if (studentForm) {
+  studentForm.addEventListener('submit', async e => {
+    e.preventDefault();
+
+    const studentCode =
+      'STU-' +
+      Date.now().toString().slice(-8);
+
+    const newStudent = {
+      student_id: studentCode,
+      name: document.getElementById('sName').value.trim(),
+      age: document.getElementById('sAge').value
+        ? Number(document.getElementById('sAge').value)
+        : null,
+      gender: document.getElementById('sGender').value || null,
+      country: document.getElementById('sCountry').value.trim() || 'China',
+      timezone: document.getElementById('sTimezone').value.trim() || 'Asia/Shanghai',
+      class_duration: Number(document.getElementById('sDuration').value || 25),
+      payment_type: document.getElementById('sPayment').value || 'Contract',
+      amount_per_class: Number(document.getElementById('sAmount').value || 0),
+      book: document.getElementById('sBook').value.trim() || null,
+      start_date: todayISO(),
+      status: 'Active'
+    };
+
+    const { error } = await supabaseClient
+      .from('students')
+      .insert(newStudent);
+
+    if (error) {
+      alert('Student was not saved: ' + error.message);
+      return;
+    }
+
+    studentDialog.close();
+    await loadDashboardData();
+  });
+}
+
+function renderStudents() {
+  const tbody = document.getElementById('studentsTable');
+  const search = lower(document.getElementById('studentSearch')?.value);
+
+  if (!tbody) return;
+
+  const students = state.students.filter(student => {
+    if (!search) return true;
+
+    return (
+      lower(student.name).includes(search) ||
+      lower(student.student_id).includes(search) ||
+      lower(student.book).includes(search)
+    );
+  });
+
+  if (!students.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="8">No students yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = students.map(student => `
+    <tr>
+      <td>${esc(student.student_id || student.id)}</td>
+      <td><strong>${esc(student.name)}</strong></td>
+      <td>${esc(student.age || '')}</td>
+      <td>${esc(student.country || '')}</td>
+      <td>${esc(student.book || '')}</td>
+      <td>${esc(student.payment_type || '')}</td>
+      <td>${Number(student.amount_per_class || 0).toFixed(2)} RMB</td>
+      <td>
+        <button
+          class="text-btn"
+          onclick="deleteStudent(${student.id})">
+          Delete
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+window.deleteStudent = async function(id) {
+  if (!confirm('Delete this student? Their class records will also be deleted.')) {
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from('students')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  await loadDashboardData();
+};
+
+document.getElementById('studentSearch')
+  ?.addEventListener('input', renderStudents);
+
+
+// ==========================================
+// CLASS SCHEDULING
+// ==========================================
+
+const classDialog = document.getElementById('classDialog');
+const classForm = document.getElementById('classForm');
+
+['quickClass', 'addClassBtn'].forEach(id => {
+  const button = document.getElementById(id);
+
+  if (button) {
+    button.addEventListener('click', () => {
+      if (!state.students.length) {
+        alert('Please add a student first.');
+        return;
+      }
+
+      classForm.reset();
+      fillStudentSelect();
+
+      document.getElementById('cDate').value = todayISO();
+      document.getElementById('cDuration').value = '25';
+      document.getElementById('cStatus').value = 'Scheduled';
+
+      classDialog.showModal();
+    });
+  }
+});
+
+function fillStudentSelect() {
+  const select = document.getElementById('cStudent');
+
+  if (!select) return;
+
+  select.innerHTML = state.students
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(student =>
+      `<option value="${student.id}">${esc(student.name)}</option>`
+    )
+    .join('');
+}
+
+if (classForm) {
+  classForm.addEventListener('submit', async e => {
+    e.preventDefault();
+
+    const newClass = {
+      student_id: Number(document.getElementById('cStudent').value),
+      class_date: document.getElementById('cDate').value,
+      class_time: document.getElementById('cTime').value,
+      duration: Number(document.getElementById('cDuration').value || 25),
+      status: document.getElementById('cStatus').value,
+      notes: document.getElementById('cNotes').value.trim() || null,
+      source: 'Manual'
+    };
+
+    const { error } = await supabaseClient
+      .from('classes')
+      .insert(newClass);
+
+    if (error) {
+      alert('Class was not saved: ' + error.message);
+      return;
+    }
+
+    classDialog.close();
+    await loadDashboardData();
+  });
+}
+
+function studentNameForClass(item) {
+  if (item.students?.name) return item.students.name;
+
+  const student = state.students.find(
+    s => Number(s.id) === Number(item.student_id)
+  );
+
+  return student?.name || 'Unknown Student';
+}
+
+function renderSchedule() {
+  const tbody = document.getElementById('scheduleTable');
+  if (!tbody) return;
+
+  const filter = document.getElementById('scheduleDateFilter')?.value;
+
+  const rows = state.classes
+    .filter(item => !filter || item.class_date === filter)
+    .sort((a, b) =>
+      `${a.class_date} ${a.class_time || ''}`
+        .localeCompare(`${b.class_date} ${b.class_time || ''}`)
+    );
+
+  if (!rows.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="7">No scheduled classes.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(item => `
+    <tr>
+      <td>${esc(item.class_date)}</td>
+      <td>${esc((item.class_time || '').slice(0, 5))}</td>
+      <td><strong>${esc(studentNameForClass(item))}</strong></td>
+      <td>${esc(item.duration)} min</td>
+      <td>${esc(item.status)}</td>
+      <td>${esc(item.notes || '')}</td>
+      <td>
+        <button
+          class="text-btn"
+          onclick="deleteClass(${item.id})">
+          Delete
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+window.deleteClass = async function(id) {
+  if (!confirm('Delete this class record?')) return;
+
+  const { error } = await supabaseClient
+    .from('classes')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  await loadDashboardData();
+};
+
+document.getElementById('scheduleDateFilter')
+  ?.addEventListener('change', renderSchedule);
+
+
+// ==========================================
+// CLASS RECORDS
+// ==========================================
+
+function renderRecords() {
+  const tbody = document.getElementById('recordsTable');
+  const query = lower(document.getElementById('recordSearch')?.value);
+
+  if (!tbody) return;
+
+  const rows = state.classes
+    .slice()
+    .sort((a, b) =>
+      `${b.class_date} ${b.class_time || ''}`
+        .localeCompare(`${a.class_date} ${a.class_time || ''}`)
+    )
+    .filter(item => {
+      if (!query) return true;
+
+      return (
+        lower(studentNameForClass(item)).includes(query) ||
+        lower(item.status).includes(query) ||
+        lower(item.source).includes(query)
+      );
+    });
+
+  if (!rows.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="7">No class records yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${esc(item.class_date)}</td>
+      <td>${esc((item.class_time || '').slice(0, 5))}</td>
+      <td>${esc(studentNameForClass(item))}</td>
+      <td>${esc(item.duration)} min</td>
+      <td>${esc(item.status)}</td>
+      <td>${esc(item.source || 'Manual')}</td>
+    </tr>
+  `).join('');
+}
+
+document.getElementById('recordSearch')
+  ?.addEventListener('input', renderRecords);
+
+document.getElementById('clearRecordsBtn')
+  ?.addEventListener('click', async () => {
+    if (!confirm('Delete ALL class records?')) return;
+
+    const { error } = await supabaseClient
+      .from('classes')
+      .delete()
+      .gt('id', 0);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadDashboardData();
+  });
+
+
+// ==========================================
+// DASHBOARD
+// ==========================================
+
+function renderDashboard() {
+  const today = todayISO();
+  const month = today.slice(0, 7);
+
+  document.getElementById('statStudents').textContent =
+    state.students.filter(s => s.status !== 'Inactive').length;
+
+  document.getElementById('statToday').textContent =
+    state.classes.filter(c => c.class_date === today).length;
+
+  document.getElementById('statMonth').textContent =
+    state.classes.filter(c =>
+      String(c.class_date || '').startsWith(month)
+    ).length;
+
+  document.getElementById('statRecords').textContent =
+    state.classes.length;
+
+  const upcoming = state.classes
+    .filter(c => c.class_date >= today)
+    .sort((a, b) =>
+      `${a.class_date} ${a.class_time || ''}`
+        .localeCompare(`${b.class_date} ${b.class_time || ''}`)
+    )
+    .slice(0, 5);
+
+  const upcomingList = document.getElementById('upcomingList');
+
+  if (upcomingList) {
+    upcomingList.innerHTML = upcoming.length
+      ? upcoming.map(c => `
+          <div style="
+            display:flex;
+            justify-content:space-between;
+            padding:10px 0;
+            border-bottom:1px solid #eee;
+          ">
+            <div>
+              <strong>${esc(studentNameForClass(c))}</strong><br>
+              <small>
+                ${esc(c.class_date)}
+                ·
+                ${esc((c.class_time || '').slice(0,5))}
+              </small>
+            </div>
+            <span>${esc(c.duration)} min</span>
+          </div>
+        `).join('')
+      : 'No upcoming classes yet.';
+  }
+
+  const recent = state.students.slice(0, 5);
+  const recentStudents = document.getElementById('recentStudents');
+
+  if (recentStudents) {
+    recentStudents.innerHTML = recent.length
+      ? recent.map(s => `
+          <div style="
+            display:flex;
+            justify-content:space-between;
+            padding:10px 0;
+            border-bottom:1px solid #eee;
+          ">
+            <div>
+              <strong>${esc(s.name)}</strong><br>
+              <small>${esc(s.book || 'No book')}</small>
+            </div>
+            <span>${esc(s.payment_type || '')}</span>
+          </div>
+        `).join('')
+      : 'No students yet.';
+  }
+}
+
+
+// ==========================================
+// REPORTS
+// ==========================================
+
+function renderReports() {
+  const imported = state.classes.filter(
+    c => lower(c.source) === 'classin'
+  ).length;
+
+  const scheduled = state.classes.filter(
+    c => lower(c.status) === 'scheduled'
+  ).length;
+
+  const present = state.classes.filter(
+    c => lower(c.status) === 'present'
+  ).length;
+
+  const other = state.classes.filter(c => {
+    const status = lower(c.status);
+
+    return (
+      status.includes('cancel') ||
+      status.includes('absent')
+    );
+  }).length;
+
+  document.getElementById('reportImported').textContent = imported;
+  document.getElementById('reportScheduled').textContent = scheduled;
+  document.getElementById('reportPresent').textContent = present;
+  document.getElementById('reportOther').textContent = other;
+}
+
+
+// ==========================================
+// CLASSIN FILE READING
+// ==========================================
+
+const fileInput = document.getElementById('fileInput');
+
+if (fileInput) {
+  fileInput.addEventListener('change', async e => {
+    parsedImportRows = [];
+
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const text = await file.text();
+
+        const parsed = Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true
+        });
+
+        parsedImportRows = parsed.data || [];
+      } else {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+        parsedImportRows = XLSX.utils.sheet_to_json(sheet, {
+          defval: ''
+        });
+      }
+
+      showImportStatus(
+        `Ready to import ${parsedImportRows.length} rows.`
+      );
+    } catch (error) {
+      showImportStatus(
+        'Could not read the file: ' + error.message
+      );
+    }
+  });
+}
+
+function findField(row, candidates) {
+  const keys = Object.keys(row || {});
+
+  for (const candidate of candidates) {
+    const found = keys.find(
+      key => lower(key) === lower(candidate)
+    );
+
+    if (found) return row[found];
+  }
+
+  return '';
+}
+
+function normalizeDate(value) {
+  if (!value) return '';
+
+  if (typeof value === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(value);
+
+    if (parsed) {
+      return `${parsed.y}-${String(parsed.m).padStart(2,'0')}-${String(parsed.d).padStart(2,'0')}`;
+    }
+  }
+
+  const date = new Date(value);
+
+  if (!Number.isNaN(date.getTime())) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  return '';
+}
+
+function normalizeTime(value) {
+  if (!value) return '';
+
+  const text = String(value).trim();
+
+  const match = text.match(/(\d{1,2}):(\d{2})/);
+
+  if (match) {
+    return `${String(match[1]).padStart(2,'0')}:${match[2]}`;
+  }
+
+  return '';
+}
+
+function showImportStatus(message) {
+  const box = document.getElementById('importStatus');
+
+  if (!box) return;
+
+  box.classList.remove('hidden');
+  box.textContent = message;
+}
+
+
+// ==========================================
+// IMPORT CLASSIN TO SUPABASE
+// ==========================================
+
+document.getElementById('importBtn')
+  ?.addEventListener('click', async () => {
+
+    if (!parsedImportRows.length) {
+      alert('Choose a CSV or Excel file first.');
+      return;
+    }
+
+    showImportStatus(
+      `Processing ${parsedImportRows.length} rows...`
+    );
+
+    let imported = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const row of parsedImportRows) {
+      try {
+        const studentName = String(
+          findField(row, [
+            'Student',
+            'Student Name',
+            'student_name',
+            'Name',
+            'Learner'
+          ]) || ''
+        ).trim();
+
+        const classDate = normalizeDate(
+          findField(row, [
+            'Date',
+            'Class Date',
+            'class_date',
+            'Start Date'
+          ])
+        );
+
+        const classTime = normalizeTime(
+          findField(row, [
+            'Time',
+            'Class Time',
+            'class_time',
+            'Start Time'
+          ])
+        );
+
+        if (!studentName || !classDate) {
+          skipped++;
+          continue;
+        }
+
+        let student = state.students.find(
+          s => lower(s.name) === lower(studentName)
+        );
+
+        if (!student) {
+          if (!document.getElementById('autoStudents')?.checked) {
+            skipped++;
+            continue;
+          }
+
+          const { data, error } = await supabaseClient
+            .from('students')
+            .insert({
+              student_id:
+                'STU-' + Date.now().toString().slice(-8) +
+                Math.floor(Math.random() * 99),
+              name: studentName,
+              country: 'China',
+              timezone: 'Asia/Shanghai',
+              class_duration: 25,
+              payment_type: 'Contract',
+              status: 'Active',
+              start_date: classDate
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          student = data;
+          state.students.push(student);
+        }
+
+        const duplicate = state.classes.some(c =>
+          Number(c.student_id) === Number(student.id) &&
+          c.class_date === classDate &&
+          (c.class_time || '').slice(0,5) === classTime
+        );
+
+        if (
+          duplicate &&
+          document.getElementById('skipDuplicates')?.checked
+        ) {
+          skipped++;
+          continue;
+        }
+
+        const duration = Number(
+          findField(row, [
+            'Duration',
+            'Class Duration',
+            'Minutes'
+          ]) || 25
+        );
+
+        const status =
+          String(
+            findField(row, [
+              'Status',
+              'Class Status'
+            ]) || 'Present'
+          ).trim();
+
+        const { error } = await supabaseClient
+          .from('classes')
+          .insert({
+            student_id: student.id,
+            class_date: classDate,
+            class_time: classTime || null,
+            duration: Number.isFinite(duration)
+              ? duration
+              : 25,
+            status: status || 'Present',
+            source: 'ClassIn'
+          });
+
+        if (error) throw error;
+
+        imported++;
+
+      } catch (error) {
+        console.error(error);
+        failed++;
+      }
+    }
+
+    await loadDashboardData();
+
+    showImportStatus(
+      `Finished. ${imported} imported, ${skipped} skipped, ${failed} failed.`
+    );
+  });
+
+
+// ==========================================
+// BACKUP / RESET
+// ==========================================
+
+document.getElementById('exportBtn')
+  ?.addEventListener('click', () => {
+    const backup = {
+      exported_at: new Date().toISOString(),
+      students: state.students,
+      classes: state.classes
+    };
+
+    const blob = new Blob(
+      [JSON.stringify(backup, null, 2)],
+      { type: 'application/json' }
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download =
+      `teacher-chezka-backup-${todayISO()}.json`;
+
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+document.getElementById('resetBtn')
+  ?.addEventListener('click', async () => {
+    if (
+      !confirm(
+        'Delete ALL students, classes, contracts and payments from Supabase?'
+      )
+    ) return;
+
+    const tables = [
+      'classes',
+      'payments',
+      'contracts'
+    ];
+
+    for (const table of tables) {
+      const { error } = await supabaseClient
+        .from(table)
+        .delete()
+        .gt('id', 0);
+
+      if (error) {
+        alert(`Could not clear ${table}: ${error.message}`);
+        return;
+      }
+    }
+
+    const { error } = await supabaseClient
+      .from('students')
+      .delete()
+      .gt('id', 0);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadDashboardData();
+  });
+
+
+// ==========================================
+// RENDER EVERYTHING
+// ==========================================
+
+function renderAll() {
+  fillStudentSelect();
+  renderStudents();
+  renderSchedule();
+  renderRecords();
+  renderDashboard();
+  renderReports();
+}
+
 checkSession();
-const STORE_KEY='teacherChezkaDashboardV1';
-let state=loadState();
-let parsedImportRows=[];
-
-function emptyState(){return{students:[],classes:[],settings:{}}}
-function loadState(){try{return JSON.parse(localStorage.getItem(STORE_KEY))||emptyState()}catch{return emptyState()}}
-function saveState(){localStorage.setItem(STORE_KEY,JSON.stringify(state));renderAll()}
-function uid(prefix){return prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,7)}
-function esc(v){return String(v??'').replace(/[&<>'"]/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[s]))}
-function norm(s){return String(s??'').trim()}
-function lower(s){return norm(s).toLowerCase()}
-
-const pages={dashboard:'Dashboard',students:'Students',schedule:'Weekly Schedule',records:'Class Records',contracts:'Contracts',payments:'Payments',reports:'Reports',import:'Import ClassIn',settings:'Settings'};
-document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.page)));
-document.querySelectorAll('[data-jump]').forEach(btn=>btn.addEventListener('click',()=>showPage(btn.dataset.jump)));
-function showPage(name){document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.page===name));document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById(name+'Page').classList.add('active');document.getElementById('pageTitle').textContent=pages[name];document.getElementById('pageSubtitle').textContent=name==='dashboard'?'Your private ESL teaching overview':'Teacher Chezka Dashboard';}
-
-const studentDialog=document.getElementById('studentDialog');
-const classDialog=document.getElementById('classDialog');
-['quickStudent','addStudentBtn'].forEach(id=>document.getElementById(id).addEventListener('click',()=>studentDialog.showModal()));
-['quickClass','addClassBtn'].forEach(id=>document.getElementById(id).addEventListener('click',openClassDialog));
-function openClassDialog(){fillStudentSelect();if(!state.students.length){alert('Please add a student first.');studentDialog.showModal();return}document.getElementById('cDate').value ||= new Date().toISOString().slice(0,10);classDialog.showModal()}
-
-studentForm.addEventListener('submit',e=>{e.preventDefault();const name=norm(sName.value);if(!name)return;state.students.push({id:'STU-'+String(state.students.length+1).padStart(4,'0'),name,age:norm(sAge.value),gender:sGender.value,country:norm(sCountry.value)||'China',timezone:norm(sTimezone.value)||'Asia/Shanghai',duration:+sDuration.value,payment:sPayment.value,amount:+sAmount.value||0,book:norm(sBook.value),createdAt:new Date().toISOString()});studentForm.reset();sCountry.value='China';sTimezone.value='Asia/Shanghai';studentDialog.close();saveState()});
-
-classForm.addEventListener('submit',e=>{e.preventDefault();const student=state.students.find(s=>s.id===cStudent.value);if(!student)return;state.classes.push({id:uid('CLS'),date:cDate.value,time:cTime.value,studentId:student.id,studentName:student.name,duration:+cDuration.value,status:cStatus.value,notes:norm(cNotes.value),source:'Manual',createdAt:new Date().toISOString()});classForm.reset();classDialog.close();saveState()});
-
-function fillStudentSelect(){cStudent.innerHTML=state.students.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}
-function renderStudents(){const q=lower(studentSearch.value);const rows=state.students.filter(s=>!q||lower([s.id,s.name,s.country,s.book].join(' ')).includes(q));studentsTable.innerHTML=rows.length?rows.map(s=>`<tr><td>${esc(s.id)}</td><td><strong>${esc(s.name)}</strong></td><td>${esc(s.age)}</td><td>${esc(s.country)}</td><td>${esc(s.book)}</td><td>${esc(s.payment)}</td><td>${s.amount?esc(s.amount)+' RMB':'—'}</td><td><button class="table-action" onclick="deleteStudent('${s.id}')">Delete</button></td></tr>`).join(''):`<tr><td colspan="8" class="muted">No students found.</td></tr>`}
-window.deleteStudent=id=>{if(!confirm('Delete this student? Existing class records will remain.'))return;state.students=state.students.filter(s=>s.id!==id);saveState()}
-studentSearch.addEventListener('input',renderStudents);
-
-function sortedClasses(){return [...state.classes].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))}
-function renderSchedule(){const f=scheduleDateFilter.value;const rows=sortedClasses().filter(c=>!f||c.date===f);scheduleTable.innerHTML=rows.length?rows.map(c=>`<tr><td>${esc(c.date)}</td><td>${esc(c.time)}</td><td><strong>${esc(c.studentName)}</strong></td><td>${esc(c.duration)} min</td><td><span class="status-pill">${esc(c.status)}</span></td><td>${esc(c.notes)}</td><td><button class="table-action" onclick="deleteClass('${c.id}')">Delete</button></td></tr>`).join(''):`<tr><td colspan="7" class="muted">No classes scheduled.</td></tr>`}
-window.deleteClass=id=>{if(!confirm('Delete this class record?'))return;state.classes=state.classes.filter(c=>c.id!==id);saveState()}
-scheduleDateFilter.addEventListener('change',renderSchedule);
-
-function renderRecords(){const q=lower(recordSearch.value);const rows=sortedClasses().filter(c=>!q||lower([c.date,c.time,c.studentName,c.status,c.source].join(' ')).includes(q));recordsTable.innerHTML=rows.length?rows.map((c,i)=>`<tr><td>${i+1}</td><td>${esc(c.date)}</td><td>${esc(c.time)}</td><td>${esc(c.studentName)}</td><td>${esc(c.duration||'')} min</td><td>${esc(c.status)}</td><td>${esc(c.source)}</td></tr>`).join(''):`<tr><td colspan="7" class="muted">No class records.</td></tr>`}
-recordSearch.addEventListener('input',renderRecords);
-clearRecordsBtn.addEventListener('click',()=>{if(confirm('Delete ALL class records?')){state.classes=[];saveState()}});
-
-function renderDashboard(){const today=new Date().toISOString().slice(0,10);const month=today.slice(0,7);statStudents.textContent=state.students.length;statToday.textContent=state.classes.filter(c=>c.date===today).length;statMonth.textContent=state.classes.filter(c=>String(c.date).startsWith(month)).length;statRecords.textContent=state.classes.length;const upcoming=[...state.classes].filter(c=>(c.date+'T'+(c.time||'00:00'))>=today+'T00:00').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).slice(0,6);upcomingList.innerHTML=upcoming.length?upcoming.map(c=>`<div class="mini-row"><span><strong>${esc(c.studentName)}</strong><br><small>${esc(c.date)} · ${esc(c.time)}</small></span><span>${esc(c.duration)} min</span></div>`).join(''):'No upcoming classes yet.';const recent=[...state.students].reverse().slice(0,6);recentStudents.innerHTML=recent.length?recent.map(s=>`<div class="mini-row"><span><strong>${esc(s.name)}</strong><br><small>${esc(s.book||'No book assigned')}</small></span><span>${esc(s.payment)}</span></div>`).join(''):'No students yet.';reportImported.textContent=state.classes.filter(c=>c.source==='ClassIn Import').length;reportScheduled.textContent=state.classes.filter(c=>lower(c.status)==='scheduled').length;reportPresent.textContent=state.classes.filter(c=>lower(c.status)==='present').length;reportOther.textContent=state.classes.filter(c=>['cancelled','absent','student absent notified','teacher absent notified'].includes(lower(c.status))).length}
-
-fileInput.addEventListener('change',async e=>{parsedImportRows=[];const file=e.target.files[0];if(!file)return;importStatus.classList.remove('hidden');importStatus.textContent='Reading file…';try{if(file.name.toLowerCase().endsWith('.csv')){const text=await file.text();const res=Papa.parse(text,{header:true,skipEmptyLines:true});parsedImportRows=res.data}else{const buf=await file.arrayBuffer();const wb=XLSX.read(buf,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];parsedImportRows=XLSX.utils.sheet_to_json(ws,{defval:''})}importStatus.textContent=`Detected ${parsedImportRows.length.toLocaleString()} rows. Ready to import.`}catch(err){importStatus.textContent='Could not read file: '+err.message}});
-
-function findField(row,candidates){const keys=Object.keys(row);for(const c of candidates){const key=keys.find(k=>lower(k)===lower(c)||lower(k).includes(lower(c)));if(key!==undefined&&norm(row[key]))return row[key]}return''}
-function normalizeDate(v){if(!v)return'';if(typeof v==='number'&&window.XLSX){const d=XLSX.SSF.parse_date_code(v);if(d)return`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;}const s=norm(v);const dt=new Date(s);if(!isNaN(dt))return dt.toISOString().slice(0,10);const m=s.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);return m?`${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`:s}
-function normalizeTime(v){const s=norm(v);const m=s.match(/(\d{1,2}):(\d{2})/);return m?`${m[1].padStart(2,'0')}:${m[2]}`:s}
-
-importBtn.addEventListener('click',()=>{if(!parsedImportRows.length){alert('Please choose a CSV or Excel file first.');return}let imported=0,dupes=0,studentsAdded=0;const existing=new Set(state.classes.map(c=>[lower(c.studentName),c.date,c.time].join('|')));for(const row of parsedImportRows){const studentName=norm(findField(row,['student','student name','nickname','name','class student','user name']))||'Unknown Student';const date=normalizeDate(findField(row,['date','class date','lesson date','start date','start time']));const time=normalizeTime(findField(row,['time','class time','lesson time','start time']));const durationRaw=findField(row,['duration','class duration','lesson duration','minutes']);const duration=parseInt(String(durationRaw).match(/\d+/)?.[0]||'25',10);const status=norm(findField(row,['status','class status','attendance','lesson status']))||'Present';const key=[lower(studentName),date,time].join('|');if(skipDuplicates.checked&&existing.has(key)){dupes++;continue}let student=state.students.find(s=>lower(s.name)===lower(studentName));if(!student&&autoStudents.checked){student={id:'STU-'+String(state.students.length+1).padStart(4,'0'),name:studentName,age:'',gender:'',country:'China',timezone:'Asia/Shanghai',duration:25,payment:'Contract',amount:0,book:'',createdAt:new Date().toISOString()};state.students.push(student);studentsAdded++}state.classes.push({id:uid('CLS'),date,time,studentId:student?.id||'',studentName,duration,status,notes:'',source:'ClassIn Import',createdAt:new Date().toISOString(),raw:row});existing.add(key);imported++}localStorage.setItem(STORE_KEY,JSON.stringify(state));renderAll();importStatus.textContent=`Import complete: ${imported.toLocaleString()} rows imported, ${dupes.toLocaleString()} duplicates skipped, ${studentsAdded.toLocaleString()} new students created.`});
-
-exportBtn.addEventListener('click',()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='teacher-chezka-dashboard-backup.json';a.click();URL.revokeObjectURL(a.href)});
-backupInput.addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const data=JSON.parse(await f.text());if(!Array.isArray(data.students)||!Array.isArray(data.classes))throw new Error('Invalid backup');state=data;saveState();alert('Backup imported successfully.')}catch(err){alert('Could not import backup: '+err.message)}});
-resetBtn.addEventListener('click',()=>{if(confirm('Reset ALL students and classes? This cannot be undone unless you exported a backup.')){state=emptyState();saveState()}});
-
-function renderAll(){renderStudents();renderSchedule();renderRecords();renderDashboard();fillStudentSelect()}
-renderAll();
